@@ -75,6 +75,30 @@ pub fn derive_recap(item: TokenStream) -> TokenStream {
         }
     };
 
+    let impl_vector_from_str = quote! {
+        impl #impl_generics std::str::FromStr for ::std::vec::Vec<#item_ident #ty_generics> #where_clause {
+            type Err = recap::Error;
+            fn from_str(s: &str) -> Result<Self, Self::Err> {
+                recap::lazy_static! {
+                    static ref RE: recap::Regex = recap::Regex::new(#regex)
+                        .expect("Failed to compile regex");
+                }
+
+                let mut results = ::std::vec::Vec::new();
+                for caps in RE.captures_iter(s) {
+                    let deserialized = recap::from_iter(
+                        RE.capture_names()
+                            .filter_map(|maybe_name| {
+                                maybe_name.and_then(|name| caps.name(name).map(|val| (name, val.as_str())))
+                            })
+                    )?;
+                    results.push(deserialized);
+                }
+                Ok(results)
+            }
+        }
+    };
+
     let injector = Ident::new(
         &format!("RECAP_IMPL_FOR_{}", item.ident.to_string()),
         Span::call_site(),
@@ -85,6 +109,7 @@ pub fn derive_recap(item: TokenStream) -> TokenStream {
             extern crate recap;
             #impl_inner
             #impl_matcher
+            #impl_vector_from_str
         };
     };
 
