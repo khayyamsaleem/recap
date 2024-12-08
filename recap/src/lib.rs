@@ -338,7 +338,7 @@ impl<'a: 'de, 'de, Iter: Iterator<Item = (&'a str, &'a str)>> de::Deserializer<'
 
 /// Deserializes a type based on an iterable of `(&str, &str)`
 /// representing keys and values
-fn from_iter<'a, Iter, T>(iter: Iter) -> Result<T>
+pub fn from_iter<'a, Iter, T>(iter: Iter) -> Result<T>
 where
     T: de::Deserialize<'a>,
     Iter: IntoIterator<Item = (&'a str, &'a str)>,
@@ -368,9 +368,26 @@ where
     )
 }
 
+pub fn from_all_captures<'a, D>(re: &'a Regex, input: &'a str) -> Result<Vec<D>>
+where
+    D: Deserialize<'a>,
+{
+    let mut results = Vec::new();
+    for caps in re.captures_iter(input) {
+        let deserialized = from_iter(
+            re.capture_names()
+                .filter_map(|maybe_name| {
+                    maybe_name.and_then(|name| caps.name(name).map(|val| (name, val.as_str())))
+                })
+        )?;
+        results.push(deserialized);
+    }
+    Ok(results)
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{from_captures, Regex};
+    use super::{from_captures, from_all_captures, Regex};
     use serde::Deserialize;
     use std::error::Error;
 
@@ -497,4 +514,30 @@ mod tests {
 
         Ok(())
     }
+
+    #[test]
+    fn test_from_all_captures() -> Result<(), Box<dyn Error>> {
+        let re = Regex::new(
+                r#"(?x)
+                (?P<foo>\S+)
+                \s+
+                (?P<bar>\S+)
+                \s+
+                (?P<baz>\S+)
+            "#)?;
+        let input = "one two three four five six seven eight nine";
+        let results: Vec<LogEntryBorrowed> = from_all_captures(&re, input)?;
+
+        assert_eq!(
+            results,
+            vec![
+                LogEntryBorrowed { foo: "one", bar: "two", baz: "three" },
+                LogEntryBorrowed { foo: "four", bar: "five", baz: "six" },
+                LogEntryBorrowed { foo: "seven", bar: "eight", baz: "nine" },
+            ]
+        );
+
+        Ok(())
+    }
+
 }
